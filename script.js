@@ -263,6 +263,12 @@ tex('sign', 512, 128, (g,w,h) => {                              // papan "TOWER 
   g.fillStyle = '#f5c518'; g.beginPath(); g.arc(64,64,18,0,7); g.fill();
   g.fillStyle = '#fff'; g.font = 'bold 64px sans-serif'; g.textBaseline = 'middle'; g.fillText('TOWER 2 ITS', 130, 68);
 });
+tex('crossing', 128, 128, (g,w,h) => {                          // rambu: kotak biru + segitiga putih
+  g.fillStyle = '#1a5fb4'; g.fillRect(0,0,w,h);
+  g.strokeStyle = '#fff'; g.lineWidth = 4; g.strokeRect(6,6,w-12,h-12);   // garis tepi putih tipis
+  g.fillStyle = '#fff'; g.beginPath();
+  g.moveTo(64,26); g.lineTo(104,98); g.lineTo(24,98); g.closePath(); g.fill();   // segitiga putih
+});
 
 /* ---------- 6. SCENE GRAPH: helper + fungsi draw ---------- */
 // Node = {mesh, tex, warna c, matriks lokal l, anak k, opsi}. Matriks lokal boleh fungsi (untuk animasi).
@@ -394,8 +400,17 @@ const lampu = grp(T(-12, 0, 8.2), [
   P(SP, 'plain', [1,.95,.7], mul(T(.5,6.9,0), S(.22,.22,.22)), { e: () => .3 + night*1.5 })  // bola lampu
 ]);
 
+// RAMBU: tiang + papan. rambu(x, z, putarY) -> panggil berkali-kali untuk banyak instance
+const rambu = (x, z, ry = 0) => grp(mul(T(x, 0, z), RY(ry)), [
+  P(CY, 'plain', [.5,.5,.52], mul(T(0,1.2,-.07), S(.05,2.4,.05))),                  // tiang
+  box('crossing', W, 0, 2.6, 0, 1, 1, .06, { sp:.4, sh:32 })                        // papan 1x1
+]);
+const rambuAll = grp(I(), [
+  rambu(8, 1.2, 0),
+]);
+
 // ROOT = gabungan semua objek (sesuai tree di index.html)
-const root = grp(I(), [lingkungan, gedung, gedung2, mobil, motor, pohonAll, tanaman, lampu]);
+const root = grp(I(), [lingkungan, gedung, gedung2, mobil, motor, pohonAll, tanaman, lampu, rambuAll]);
 
 /* ---------- 8. KAMERA ORBIT (drag = putar, scroll = zoom) ---------- */
 const cam = { yaw: 0, pitch: .12, dist: 26, tgt: [0, 2, 4] };   // sudut horizontal, vertikal, jarak, titik yang dilihat
