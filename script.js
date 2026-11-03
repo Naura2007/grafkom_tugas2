@@ -23,9 +23,11 @@ let night = 0;    // 0 = siang, 1 = malam (dihitung dari slider jam)
 let hour = 10;    // jam awal pada slider (0-24)
 
 // Posisi kendaraan sebagai fungsi waktu (dihitung ulang tiap frame)
-const car_x  = () => ((t * 4 + 20) % 40) - 20;   // mobil: kecepatan 4, loop dari x=-20 ke 20
+const car_d = () => t * 4;                    // distance driven (always increasing)
+const car_x = () => 20 - (car_d() % 40);      // 20 -> -20 (opposite of before)
+//const car_x  = () => ((t * 4 + 20) % 40) - 20;   // mobil: kecepatan 4, loop dari x=-20 ke 20
 const bike_d = () => t * 3;                      // jarak tempuh motor (kecepatan 3)
-const bike_x = () => 20 - (bike_d() % 40);       // motor: arah berlawanan (20 -> -20)
+const bike_x = () => -20 + (bike_d() % 40);       // motor: arah berlawanan (20 -> -20)
 
 /* ---------- 2. MATRIKS 4x4 (column-major) ---------- */
 const I = () => new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);   // identitas
@@ -82,6 +84,10 @@ in vec3 vN, vP; in vec2 vUV;
 uniform sampler2D uT;
 uniform vec3 uCol, uEye, uSunDir, uSunCol, uAmb, uLampPos, uLampCol;
 uniform float uSpec, uShin, uEmi;
+uniform vec3 uSpPos[2];   // headlight positions (world)
+uniform vec3 uSpDir;      // direction the beams point
+uniform vec3 uSpCol;      // beam color/intensity
+uniform float uSpCos;     // cosine of the cone angle
 out vec4 o;
 void main(){
   vec3 base = texture(uT, vUV).rgb * uCol;      // warna dasar = tekstur x warna objek
@@ -96,6 +102,16 @@ void main(){
   vec3 PL = uLampPos - vP; float d = length(PL); PL /= d;
   float at = 1./(1. + .02*d + .004*d*d);
   c += uLampCol*at*( max(dot(N,PL),0.)*base + uSpec*pow(max(dot(N,normalize(PL+V)),0.),uShin) );
+  
+  // (c) Lampu depan mobil = 2 spotlight (point light + cone)
+  for (int i = 0; i < 2; i++) {
+    vec3 SL = uSpPos[i] - vP; float sd = length(SL); SL /= sd;
+    float cosA = dot(-SL, normalize(uSpDir));            // sudut antara arah sinar & titik ini
+    float spot = smoothstep(uSpCos, uSpCos + .08, cosA); // 0 di luar kerucut, halus di tepi
+    float sat = 1./(1. + .03*sd + .006*sd*sd);
+    c += uSpCol*spot*sat*( max(dot(N,SL),0.)*base
+    + uSpec*pow(max(dot(N,normalize(SL+V)),0.),uShin) );
+  }
   c += base*uEmi;                               // emissive (benda menyala: lampu, papan nama)
   o = vec4(c,1.);
 }`;
@@ -108,7 +124,9 @@ const pr = gl.createProgram();
 gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS));
 gl.linkProgram(pr); gl.useProgram(pr);
 const U = {};   // lokasi semua uniform
-['uVP','uM','uUV','uT','uCol','uEye','uSunDir','uSunCol','uAmb','uLampPos','uLampCol','uSpec','uShin','uEmi']
+
+['uVP','uM','uUV','uT','uCol','uEye','uSunDir','uSunCol','uAmb','uLampPos','uLampCol','uSpec','uShin','uEmi',
+  'uSpPos','uSpDir','uSpCol','uSpCos']
   .forEach(n => U[n] = gl.getUniformLocation(pr, n));
 
 /* ---------- 4. GEOMETRI DASAR ---------- */
@@ -277,7 +295,11 @@ const lingkungan = grp(I(), [
   box('grass',   W, 0, -.1, -6, 90, .2, 70, { uv:[30,23], sp:0 }),
   box('asphalt', W, 0, .02, 4.2, 90, .05, 4, { uv:[30,1], sp:.05 }),
   box('curb',    W, 0, .08, 2.0, 90, .16, .4, { uv:[45,1] }),
-  box('curb',    W, 0, .08, 6.4, 90, .16, .4, { uv:[45,1] })
+  box('curb',    W, 0, .08, 6.4, 90, .16, .4, { uv:[45,1] }),
+  //2nd lane
+  box('asphalt', W, 0, .02, 12.2, 90, .05, 4, { uv:[30,1], sp:.05 }),
+  box('curb',    W, 0, .08, 10, 90, .16, .4, { uv:[45,1] }),
+  box('curb',    W, 0, .08, 14.4, 90, .16, .4, { uv:[45,1] })
 ]);
 
 // (b) GEDUNG: Tower 2 (fasad abu-abu + rangka atap + menara teal + papan nama) & gedung rendah atap oranye
@@ -287,8 +309,14 @@ const gedung = grp(I(), [
   box('teal',    W, 3.6, 9, -12, 3.4, 18, 5, { uv:[2,6], sp:.4 }),          // menara teal
   box('sign',    W, -3, 13.3, -9.45, 4, 1, .1, { e: () => night*.7 }),      // papan nama (menyala saat malam)
   box('wall',    W, -9, 1.5, -5, 12, 3, 5, { uv:[4,1] }),                   // dinding gedung rendah
-  P(CU, 'roof', W, mul(T(-9,3.3,-5), mul(RZ(.08), S(13,.3,6.2))), { uv:[1,8] }), // atap oranye (dimiringkan RZ)
+  P(CU, 'roof', W, mul(T(-9,4.5,-5), mul(RX(.58), S(13,.3,6.2))), { uv:[1,8] }), // atap oranye (dimiringkan RZ)
   box('glass',   W, -2, 1.9, -5, 3, 3.8, 4.6, { sp:.8, sh:64 })             // blok kaca gelap
+]);
+
+const gedung2 = grp(() => T(-29, 0, -6), [
+  box('facade',  W, -3, 7.5, -12, 10, 15, 15, { uv:[3,5] }),                 // fasad abu-abu
+  box('lattice', W, -3, 15.6, -12, 10, 1.2, 15, { uv:[6,1] }),               // rangka di atap
+  box('sign',    W, -3, 13.3, -9.45, 4, 1, .1, { e: () => night*.7 }),      // papan nama (menyala saat malam)
 ]);
 
 // (c) KENDARAAN — HIERARKI: kendaraan (induk) -> roda (anak) -> ban + velg (cucu)
@@ -299,14 +327,24 @@ const wheel = (x, z, r, th, sp) => grp(() => T(x, r, z), [
     P(CY, 'rim', W, mul(RX(Math.PI/2), S(r*1.25, th*1.05, r*1.25)), { sp:.6 })       // velg bertekstur
   ])
 ]);
-const mobil = grp(() => T(car_x(), 0, 5), [                     // induk: posisi mobil bergerak
+
+const SK_MOBIL = 0.4 , CAR_Y = 0.2, CAR_Z = 12.2;
+const carM = () => mul(T(car_x(), CAR_Y, CAR_Z), mul(RY(Math.PI), S(SK_MOBIL, SK_MOBIL, SK_MOBIL)));
+
+const mobil = grp(carM, [ // induk: posisi mobil bergerak + dihadapkan ke arah -x
   P(CU, 'plain', [.78,.05,.1], mul(T(0,.8,0), S(4.4,.9,1.9)), { sp:.8, sh:64 }),    // bodi merah (warna di sini)
   P(CU, 'glass', W, mul(T(-.3,1.55,0), S(2.4,.75,1.7)), { sp:.9, sh:80 }),          // kabin kaca
   P(CU, 'plain', [1,1,.8], mul(T(2.21,.85,.6), S(.05,.2,.4)),  { e: () => .4 + night*1.2 }),  // lampu depan kanan
   P(CU, 'plain', [1,1,.8], mul(T(2.21,.85,-.6), S(.05,.2,.4)), { e: () => .4 + night*1.2 }),  // lampu depan kiri
-  ...[[1.4,.95],[1.4,-.95],[-1.4,.95],[-1.4,-.95]].map(([x,z]) => wheel(x, z, .4, .4, () => car_x()/.4)) // 4 roda
+  ...[[1.4,.95],[1.4,-.95],[-1.4,.95],[-1.4,-.95]].map(([x,z]) => wheel(x, z, .4, -.4, () => car_d()/(.4*SK_MOBIL))) // 4 roda
 ]);
-const motor = grp(() => mul(T(bike_x(), 0, 3.2), RY(Math.PI)), [  // induk: posisi + dihadapkan ke arah -x
+const xf = (m, [x,y,z]) => [
+  m[0]*x + m[4]*y + m[8]*z  + m[12],
+  m[1]*x + m[5]*y + m[9]*z  + m[13],
+  m[2]*x + m[6]*y + m[10]*z + m[14]];
+
+const SK_MOTOR = 0.3;
+const motor = grp(() => mul(T(bike_x(), 0.2, 3.2), S(SK_MOTOR, SK_MOTOR, SK_MOTOR)), [  // induk: posisi 
   P(CU, 'plain', [.12,.12,.12], mul(T(0,.6,0), S(1.4,.3,.3))),                       // bodi motor
   P(CU, 'plain', [.1,.1,.1], mul(T(-.2,.85,0), S(.7,.12,.3))),                       // jok
   wheel(.75, 0, .33, .12, () => bike_d()/.33), wheel(-.75, 0, .33, .12, () => bike_d()/.33),  // 2 roda
@@ -324,16 +362,32 @@ const pohon = (x, z, s) => grp(T(x, 0, z), [                    // s = skala poh
     P(SP, 'leaf', W, mul(T(-1.2*s,.6*s,.5*s), S(1.8*s,1.5*s,1.8*s)), { uv:[3,3], sp:.05 })
   ])
 ]);
-const pohonAll = grp(I(), [pohon(17,-2,1.6), pohon(-20,-9,1.4), pohon(-14,-8,1.1)]);  // tambah pohon: pohon(x, z, skala)
+
+const rnd = (a, b) => a + Math.random() * (b - a);   // random number between a and b
+
+// 4 trees randomly placed between (-28,-4) and (-16,-2)
+const pohonAntara = Array.from({ length: 4 }, () =>
+  pohon(rnd(-26, -18), rnd(-5, -1), rnd(0.3, 0.9))   // x, z, scale
+);
+
+const pohonAll = grp(I(), [
+  pohon(17,-2, 1.6), 
+  pohon(-20,-9, 1.4), 
+  pohon(-14,-8, 1.1),
+  pohon(-28, -4, 0.8),
+  pohon(-16,-2, 0.6),
+  ...pohonAntara
+
+]);  // tambah pohon: pohon(x, z, skala)
 const tanaman = grp(I(), Array.from({ length: 12 }, (_, i) =>                          // 12 tanaman median, goyang beda fase
-  grp(() => mul(T(-12 + i*1.1, 0, 1), RZ(Math.sin(t*2 + i)*.07)), [
+  grp(() => mul(T(-9 + i*1.1, 0, 8.2), RZ(Math.sin(t*2 + i)*.07)), [
     P(CO, 'plain', [.75,.65,.3], S(.25, 1.2 + (i%3)*.3, .25), { sp:0 })
   ])
 ));
 
 // (e) LAMPU JALAN SURYA: tiang + 3 panel yang berputar + bola lampu (titik cahaya di LAMP)
 const LAMP = [-17.5, 6.9, .8];                                  // posisi point light di dunia
-const lampu = grp(T(-18, 0, .8), [
+const lampu = grp(T(-12, 0, 8.2), [
   P(CY, 'plain', [.5,.5,.52], mul(T(0,3.5,0), S(.12,7,.12))),                        // tiang
   grp(() => mul(T(0,7,0), RY(t*.4)), [-1,0,1].map(k =>                               // panel berputar pelan
     P(CU, 'solar', W, mul(T(k*1.1, .4 + Math.abs(k)*.1, 0), mul(RZ(-.35), S(1,.06,1.4))), { sp:.5 }))),
@@ -341,10 +395,10 @@ const lampu = grp(T(-18, 0, .8), [
 ]);
 
 // ROOT = gabungan semua objek (sesuai tree di index.html)
-const root = grp(I(), [lingkungan, gedung, mobil, motor, pohonAll, tanaman, lampu]);
+const root = grp(I(), [lingkungan, gedung, gedung2, mobil, motor, pohonAll, tanaman, lampu]);
 
 /* ---------- 8. KAMERA ORBIT (drag = putar, scroll = zoom) ---------- */
-const cam = { yaw: 0, pitch: .12, dist: 26, tgt: [0, 6, -4] };   // sudut horizontal, vertikal, jarak, titik yang dilihat
+const cam = { yaw: 0, pitch: .12, dist: 26, tgt: [0, 2, 4] };   // sudut horizontal, vertikal, jarak, titik yang dilihat
 function preset(y, p, d) { cam.yaw = y; cam.pitch = p; cam.dist = d; $('follow').checked = false; cam.tgt = [0, 6, -4]; }  // dipakai tombol Depan/Samping/Atas
 let drag = null;
 cv.onpointerdown = e => { drag = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); };
@@ -393,6 +447,16 @@ function frame(ms) {
   gl.uniform3fv(U.uLampPos, LAMP);                                    // lampu jalan (point light)
   gl.uniform3fv(U.uLampCol, [3*lk, 2.5*lk, 1.6*lk]);
 
+  // lampu depan mobil
+  const M  = carM();
+  const hl = $('lampon').checked ? 1 : night;                 // menyala saat malam / dipaksa
+  const p1 = xf(M, [2.3, .85,  .6]), p2 = xf(M, [2.3, .85, -.6]);
+  const o0 = xf(M, [0, 0, 0]), o1 = xf(M, [1, -.12, 0]);      // arah depan, sedikit menunduk
+  gl.uniform3fv(U.uSpPos, [...p1, ...p2]);
+  gl.uniform3fv(U.uSpDir, [o1[0]-o0[0], o1[1]-o0[1], o1[2]-o0[2]]);
+  gl.uniform3fv(U.uSpCol, [6*hl, 5.6*hl, 4.4*hl]);
+  gl.uniform1f(U.uSpCos, Math.cos(.5));                       // setengah sudut kerucut ≈ 29°
+  
   draw(root, I());                                                    // gambar seluruh scene dari root
   requestAnimationFrame(frame);
 }
