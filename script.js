@@ -1,19 +1,3 @@
-/* =====================================================================
-   TUGAS 2 GRAFIKA KOMPUTER – SCENE TOWER 2 ITS (WebGL2, tanpa library)
-   Isi file (cari nomor bagian dengan Ctrl+F):
-     1. SETUP & STATE      6. SCENE GRAPH (helper + draw)
-     2. MATRIKS            7. OBJEK-OBJEK SCENE
-     3. SHADER (lighting)  8. KAMERA
-     4. GEOMETRI           9. RENDER LOOP
-     5. TEKSTUR
-   CONTEKAN CHALLENGE:
-     kecepatan mobil -> bagian 1 (car_x, angka 4)   | warna mobil -> bagian 7 (mobil)
-     tambah pohon    -> bagian 7 (pohonAll)         | arah/warna matahari -> bagian 9 (sd, uSunCol)
-     tekstur baru    -> bagian 5 (tex) + pakai di box('nama',...)
-     kinclong        -> properti sp (kekuatan) & sh (kekerasan) pada objek
-     jam awal        -> bagian 1 (hour)             | kamera awal -> bagian 8 (cam)
-   ===================================================================== */
-
 /* ---------- 1. SETUP & STATE ---------- */
 const $ = id => document.getElementById(id);          // singkatan getElementById
 const cv = $('gl'), gl = cv.getContext('webgl2');     // canvas & konteks WebGL2
@@ -23,8 +7,8 @@ let night = 0;    // 0 = siang, 1 = malam (dihitung dari slider jam)
 let hour = 10;    // jam awal pada slider (0-24)
 
 // Posisi kendaraan sebagai fungsi waktu (dihitung ulang tiap frame)
-const car_d = () => t * 4;                    // distance driven (always increasing)
-const car_x = () => 20 - (car_d() % 40);      // 20 -> -20 (opposite of before)
+const car_d = () => t * 5;                    // distance driven (always increasing)
+const car_x = () => 40 - (car_d() % 70);      // 20 -> -20 (opposite of before)
 //const car_x  = () => ((t * 4 + 20) % 40) - 20;   // mobil: kecepatan 4, loop dari x=-20 ke 20
 const bike_d = () => t * 3;                      // jarak tempuh motor (kecepatan 3)
 const bike_x = () => -20 + (bike_d() % 40);       // motor: arah berlawanan (20 -> -20)
